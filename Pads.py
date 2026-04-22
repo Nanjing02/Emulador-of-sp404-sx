@@ -37,7 +37,7 @@ pads_samples = {}
 def cargar_sample(ruta):
     ruta = Path(ruta)
     if not ruta.exists():
-        raise FileNotFoundError(f"No se encontró el archivo: {ruta}")
+        raise FileNotFoundError(f"no se encontro el archivo: {ruta}")
 
     if sf is not None:
         data, samplerate = sf.read(str(ruta), dtype='float32')
@@ -59,7 +59,7 @@ def cargar_sample(ruta):
 def cargar_samples_pad(carpeta):
     carpeta = Path(carpeta)
     if not carpeta.exists():
-        raise FileNotFoundError(f"No existe la carpeta de samples: {carpeta}")
+        raise FileNotFoundError(f"on existe la carpeta de samples: {carpeta}")
 
     samples = {}
     for tecla, nombre_archivo in pads.items():
@@ -68,7 +68,7 @@ def cargar_samples_pad(carpeta):
             sample = cargar_sample(ruta_sample)
             samples[tecla] = sample
         except Exception as exc:
-            print(f'No se pudo cargar sample "{tecla}" -> {ruta_sample}: {exc}')
+            print(f'no se pudo cargar sample "{tecla}" {ruta_sample}: {exc}')
     return samples
 
 
@@ -85,19 +85,19 @@ def reproducir_sample(sample):
 
     if backend == 'pydub':
         if pydub_play is None:
-            raise RuntimeError('pydub no está disponible.')
+            raise RuntimeError('pydub no esta disponible.')
 
         pydub_play(sample['audiosegment'])
         return
 
-    raise RuntimeError(f"Backend desconocido para reproducir el sample: {backend}")
+    raise RuntimeError(f"backend desconocido para reproducir el sample: {backend}")
 
 
 def manejar_input(tecla):
     tecla = tecla.lower()
 
     if tecla == 'q':
-        print('Saliendo...')
+        print('saliendo...')
         return False
 
     if tecla in pads_samples:
@@ -105,32 +105,32 @@ def manejar_input(tecla):
         try:
             reproducir_sample(pads_samples[tecla])
         except Exception as exc:
-            print(f'Error al reproducir: {exc}')
+            print(f'error al reproducir: {exc}')
         return True
 
-    print(f'Tecla "{tecla}" no asignada. Usa: {", ".join(sorted(pads_samples.keys()))} o Q para salir.')
+    print(f'tecla "{tecla}" no asignada. usa: {", ".join(sorted(pads_samples.keys()))} o Q para salir.')
     return True
 
 
 if __name__ == '__main__':
-    print('Motor de audio básico para WAV')
+    print('Motor de audio basico para WAV')
     print('================================')
 
     if len(sys.argv) > 1:
         ruta_carpeta = sys.argv[1]
     else:
-        ruta_carpeta = input('Ruta de la carpeta de samples: ').strip()
+        ruta_carpeta = input('ruta de la carpeta de samples: ').strip()
 
     try:
         pads_samples = cargar_samples_pad(ruta_carpeta)
         if not pads_samples:
-            raise RuntimeError('No se cargó ningún sample de pads.')
-        print(f'Samples cargados: {len(pads_samples)} pads.')
+            raise RuntimeError('no se cargo ningún sample de pads.')
+        print(f'samples cargados: {len(pads_samples)} pads.')
     except Exception as exc:
         print(f'Error al cargar los samples de pads: {exc}')
         sys.exit(1)
 
-    print('Presiona una tecla de pads (a,b,c,d,f,g,h,j,k,l,z,x) o Q para salir.')
+    print('presiona una tecla de pads (a,b,c,d,f,g,h,j,k,l,z,x) o Q para salir.')
 
     if os.name == 'nt':
         import msvcrt
