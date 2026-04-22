@@ -124,10 +124,10 @@ if __name__ == '__main__':
     try:
         pads_samples = cargar_samples_pad(ruta_carpeta)
         if not pads_samples:
-            raise RuntimeError('no se cargo ningún sample de pads.')
+            raise RuntimeError('no se cargo ningun sample de pads.')
         print(f'samples cargados: {len(pads_samples)} pads.')
     except Exception as exc:
-        print(f'Error al cargar los samples de pads: {exc}')
+        print(f'error al cargar los samples de pads: {exc}')
         sys.exit(1)
 
     print('presiona una tecla de pads (a,b,c,d,f,g,h,j,k,l,z,x) o Q para salir.')
