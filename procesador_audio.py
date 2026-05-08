@@ -11,7 +11,7 @@ import soundfile as sf
 try:
     from pynput import keyboard
 except ImportError:
-    print("Falta pynput. Instala con: pip install pynput")
+    print("falta pynput instala con: pip install pynput")
     sys.exit(1)
 
 import msvcrt
@@ -140,7 +140,7 @@ def callback(outdata, frames, time, status):
 def cambiar_banco(n):
     global banco_actual
     banco_actual = n
-    print("Banco:",n)
+    print("banco:",n)
 
 def cargar_pad(tecla,ruta):
     try:
@@ -150,7 +150,7 @@ def cargar_pad(tecla,ruta):
         print("Error:",e)
 
 def configurar_pad():
-    op = input_no_echo("Opcion [LEVEL/MODE/MARK]: ").upper()
+    op = input_no_echo("opcion [LEVEL/MODE/MARK]: ").upper()
     pad = input_no_echo("Pad: ").lower()
 
     entry = bancos[banco_actual][pad]
@@ -164,7 +164,7 @@ def configurar_pad():
         entry['level']=lvl
 
     elif op=="MODE":
-        modo=input_no_echo("Modo [trigger/gate/loop]: ")
+        modo=input_no_echo("modo [trigger/gate/loop]: ")
         entry['mode']=modo
 
     elif op=="MARK":
