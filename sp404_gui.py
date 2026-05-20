@@ -32,11 +32,19 @@ teclas_presionadas = set()
 running = True
 listener = None
 
-# variables globales para resample
+# variables globales de resample 
 resampling = False
 resample_buffer = []
 resample_target_bank = None
 resample_target_pad = None
+
+# de lofi
+LOFI_ENABLED = False
+LOFI_TARGET_SR = 11025
+LOFI_BIT_DEPTH = 10
+LOFI_CUTOFF_HZ = 10000.0
+LOFI_DRIVE = 3.0
+lofi_filter_state = 0.0
 
 
 def crear_pad():
@@ -85,6 +93,49 @@ def cargar_sample(ruta):
 
     return np.ascontiguousarray(data.astype(np.float32))
 
+def aplicar_lofi(data):
+    global lofi_filter_state
+
+    if data.size == 0:
+        return data
+
+    decimation = max(1, SAMPLERATE // LOFI_TARGET_SR)
+
+    if decimation > 1:
+        decimated = data[::decimation]
+
+        if decimated.size == 0:
+            decimated = data
+
+        data = np.repeat(decimated, decimation)[: len(data)]
+
+    # saturación
+    data = np.tanh(data * LOFI_DRIVE) * 0.7 + data * 0.3
+
+    # reducción de bits
+    levels = (2 ** (LOFI_BIT_DEPTH - 1)) - 1
+    data = np.round(data * levels) / levels
+
+    # low pass
+    rc = 1.0 / (2.0 * np.pi * LOFI_CUTOFF_HZ)
+    alpha = 1.0 / (1.0 + rc * SAMPLERATE)
+
+    for i in range(len(data)):
+        lofi_filter_state += alpha * (data[i] - lofi_filter_state)
+        data[i] = lofi_filter_state
+
+    return data
+
+def toggle_lofi():
+    global LOFI_ENABLED
+    global lofi_filter_state
+
+    LOFI_ENABLED = not LOFI_ENABLED
+
+    if not LOFI_ENABLED:
+        lofi_filter_state = 0.0
+
+    return LOFI_ENABLED
 
 #definimos el callback
 def callback(outdata, frames, time, status):
@@ -152,6 +203,9 @@ def callback(outdata, frames, time, status):
                     nuevos.append(st)
 
         samples_activos = nuevos
+        
+    if LOFI_ENABLED:
+        outdata[:, 0] = aplicar_lofi(outdata[:, 0])
 
     np.clip(outdata, -1.0, 1.0, out=outdata)
 
@@ -412,7 +466,8 @@ class SP404Dialog(QtWidgets.QDialog):
         self.Banco_D_Button.clicked.connect(lambda: self._set_bank('D'))
 
         self.resample_button.clicked.connect(self._toggle_resample)
-
+        self.Lofi_button.clicked.connect(self._toggle_lofi)
+        
         #botones futuros para enlazar 
         self.gate_button.clicked.connect(lambda: self._placeholder('Gate'))
         self.loop_button.clicked.connect(lambda: self._placeholder('Loop'))
@@ -423,24 +478,27 @@ class SP404Dialog(QtWidgets.QDialog):
         self.Hold.clicked.connect(lambda: self._placeholder('Hold'))
         self.exitaudio.clicked.connect(self.close)
         self.subpad.clicked.connect(lambda: self._placeholder('Sub Pad'))
+       
 
     def _update_status(self, text):
+        if len(text) > 22:
+            text = text[:19] + '...'
         if hasattr(self, 'Info_Salida'):
             self.Info_Salida.setText(text)
         print(text)
 
     def _placeholder(self, name):
-        self._update_status(f'{name} pendiente.')
+        self._update_status('Pendiente')
 
     def _set_bank(self, bank):
         cambiar_banco(bank)
-        self._update_status(f'Banco actual: {banco_actual}')
+        self._update_status(f'Banco {banco_actual}')
 
     def _pad_pressed(self, tecla):
         if iniciar_pad(tecla):
             self._update_status(f'Pad {tecla.upper()} -> {banco_actual}')
         else:
-            self._update_status(f'Pad vacío: {banco_actual}-{tecla.upper()}')
+            self._update_status(f'Pad vacio {banco_actual}-{tecla.upper()}')
 
     def _pad_released(self, tecla):
         soltar_pad(tecla)
@@ -449,15 +507,22 @@ class SP404Dialog(QtWidgets.QDialog):
         if resampling:
             ok = detener_resample()
             if ok:
-                self._update_status('Resample guardado.')
+                self._update_status('RSMP guardado')
             else:
-                self._update_status('Resample detenido sin audio.')
+                self._update_status('RSMP detenido')
         else:
             ok = iniciar_resample()
             if ok:
-                self._update_status(f'Resample REC -> {banco_actual}')
+                self._update_status(f'RSMP REC {banco_actual}')
             else:
-                self._update_status('No hay pads vacíos para resample.')
+                self._update_status('No pads libres RSMP')
+    
+    def _toggle_lofi(self):
+        estado = toggle_lofi()
+        if estado:
+            self._update_status('LO-FI ON')
+        else:
+            self._update_status('LO-FI OFF')
 
     def eventFilter(self, obj, event):
         if obj in self._pad_map and event.type() == QtCore.QEvent.MouseButtonPress:
@@ -481,9 +546,9 @@ class SP404Dialog(QtWidgets.QDialog):
         try:
             # se guarda en el banco actual, carga y vuelve a mostrar estado del saple
             cargar_pad(tecla, ruta)
-            self._update_status(f'Cargado: {banco_actual}-{tecla.upper()}')
+            self._update_status(f'Cargado {banco_actual}-{tecla.upper()}')
         except Exception as e:
-            self._update_status(f'Error al cargar: {e}')
+            self._update_status('Error carga')
 
     def closeEvent(self, event):
         global running
