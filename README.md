@@ -1,9 +1,12 @@
 
 
 
-para poder ejecutar el codigo sin problemas se necesita instalar la siguiente libreria
+para poder ejecutar el codigo sin problemas se necesitan instalar las siguientes librerias
+numpy, sounddevice, soundfile, PyQt5, pynput
+
 con el comando 
+pip install <-nombre de la libreria->
 
-pip install PyQt5
+en la termial de proyecto.
 
-en la termial de proyecto para la interfaz gráfica.
+si necesitas hacer un rediseño de los botones, puede raelizarlo medieante Qt Designer 
