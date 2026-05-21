@@ -37,14 +37,13 @@ resampling = False
 resample_buffer = []
 resample_target_bank = None
 resample_target_pad = None
+resample_state = 'idle' 
 
-# de lofi
-LOFI_ENABLED = False
+# parámetros de lofi
 LOFI_TARGET_SR = 11025
 LOFI_BIT_DEPTH = 10
 LOFI_CUTOFF_HZ = 10000.0
 LOFI_DRIVE = 3.0
-lofi_filter_state = 0.0
 
 
 def crear_pad():
@@ -53,7 +52,9 @@ def crear_pad():
         'level': 1.0,
         'mode': 'trigger',
         'start': 0,
-        'end': 0
+        'end': 0,
+        'lofi': False,
+        'lofi_filter_state': 0.0
     }
 
 
@@ -93,11 +94,9 @@ def cargar_sample(ruta):
 
     return np.ascontiguousarray(data.astype(np.float32))
 
-def aplicar_lofi(data):
-    global lofi_filter_state
-
+def aplicar_lofi(data, filter_state):
     if data.size == 0:
-        return data
+        return data, filter_state
 
     decimation = max(1, SAMPLERATE // LOFI_TARGET_SR)
 
@@ -121,21 +120,25 @@ def aplicar_lofi(data):
     alpha = 1.0 / (1.0 + rc * SAMPLERATE)
 
     for i in range(len(data)):
-        lofi_filter_state += alpha * (data[i] - lofi_filter_state)
-        data[i] = lofi_filter_state
+        filter_state += alpha * (data[i] - filter_state)
+        data[i] = filter_state
 
-    return data
+    return data, filter_state
 
-def toggle_lofi():
-    global LOFI_ENABLED
-    global lofi_filter_state
+def toggle_lofi(tecla):
+    pad = bancos[banco_actual][tecla]
+    pad['lofi'] = not pad['lofi']
 
-    LOFI_ENABLED = not LOFI_ENABLED
+    if not pad['lofi']:
+        pad['lofi_filter_state'] = 0.0
 
-    if not LOFI_ENABLED:
-        lofi_filter_state = 0.0
+    for st in samples_activos:
+        if st['tecla'] == tecla:
+            st['lofi'] = pad['lofi']
+            if not st['lofi']:
+                st['lofi_filter_state'] = 0.0
 
-    return LOFI_ENABLED
+    return pad['lofi']
 
 #definimos el callback
 def callback(outdata, frames, time, status):
@@ -177,8 +180,12 @@ def callback(outdata, frames, time, status):
                         break
 
                 n = min(frames_restantes, restante)
+                chunk = sample[pos:pos + n] * level
 
-                outdata[out_pos:out_pos + n, 0] += sample[pos:pos + n] * level
+                if st.get('lofi'):
+                    chunk, st['lofi_filter_state'] = aplicar_lofi(chunk, st['lofi_filter_state'])
+
+                outdata[out_pos:out_pos + n, 0] += chunk
 
                 pos += n
                 out_pos += n
@@ -204,9 +211,6 @@ def callback(outdata, frames, time, status):
 
         samples_activos = nuevos
         
-    if LOFI_ENABLED:
-        outdata[:, 0] = aplicar_lofi(outdata[:, 0])
-
     np.clip(outdata, -1.0, 1.0, out=outdata)
 
     if resampling:
@@ -297,7 +301,9 @@ def iniciar_pad(tecla):
             'end': pad['end'],
             'level': pad['level'],
             'mode': pad['mode'],
-            'active': True
+            'active': True,
+            'lofi': pad['lofi'],
+            'lofi_filter_state': pad.get('lofi_filter_state', 0.0)
         })
 
     return True
@@ -311,33 +317,56 @@ def soltar_pad(tecla):
 
 
 def iniciar_resample():
-    global resampling, resample_buffer
-    global resample_target_bank, resample_target_pad
+    global resample_state, resample_buffer
+    global resample_target_bank, resample_target_pad, resampling
 
-    if resampling:
+    if resample_state != 'idle':
         return False
 
-    for tecla in TECLAS_PADS:
-        if bancos[banco_actual][tecla]['sample'] is None:
-            resample_target_bank = banco_actual
-            resample_target_pad = tecla
-            resample_buffer = []
-            resampling = True
-            return True
+    if not any(bancos[banco_actual][tecla]['sample'] is None for tecla in TECLAS_PADS):
+        return False
 
-    return False
+    resample_state = 'select_target'
+    resample_target_bank = None
+    resample_target_pad = None
+    resample_buffer = []
+    resampling = False
+    return True
+
+
+def cancelar_resample():
+    global resample_state, resample_buffer, resampling
+    global resample_target_bank, resample_target_pad
+
+    resample_state = 'idle'
+    resample_buffer = []
+    resample_target_bank = None
+    resample_target_pad = None
+    resampling = False
+    return True
+
+
+def armar_resample():
+    global resample_state
+
+    if resample_state != 'ready':
+        return False
+
+    resample_state = 'recording'
+    return True
 
 
 def detener_resample():
-    global resampling, resample_buffer
+    global resampling, resample_buffer, resample_state
     global resample_target_bank, resample_target_pad
 
-    if not resampling:
+    if resample_state == 'idle':
         return False
 
+    resample_state = 'idle'
     resampling = False
 
-    if not resample_buffer:
+    if not resample_buffer or resample_target_bank is None or resample_target_pad is None:
         resample_buffer = []
         resample_target_bank = None
         resample_target_pad = None
@@ -436,6 +465,7 @@ class SP404Dialog(QtWidgets.QDialog):
         uic.loadUi(str(ui_path), self)
 
         self.setWindowTitle('SP-404SX Simulator')
+        self._selected_pad = None
         self._connect_ui()
 
         self.stream = sd.OutputStream(
@@ -466,6 +496,7 @@ class SP404Dialog(QtWidgets.QDialog):
         self.Banco_D_Button.clicked.connect(lambda: self._set_bank('D'))
 
         self.resample_button.clicked.connect(self._toggle_resample)
+        self.Rec_button.clicked.connect(self._toggle_rec)
         self.Lofi_button.clicked.connect(self._toggle_lofi)
         
         #botones futuros para enlazar 
@@ -494,35 +525,85 @@ class SP404Dialog(QtWidgets.QDialog):
         cambiar_banco(bank)
         self._update_status(f'Banco {banco_actual}')
 
+    def _set_resample_target(self, bank, tecla):
+        global resample_state, resample_target_bank, resample_target_pad
+        resample_target_bank = bank
+        resample_target_pad = tecla
+        resample_state = 'ready'
+
+    def _start_resample_capture(self):
+        global resampling, resample_buffer
+        if resample_state != 'recording':
+            return
+        resample_buffer = []
+        resampling = True
+
     def _pad_pressed(self, tecla):
+        self._selected_pad = tecla
+
+        if resample_state == 'select_target':
+            if bancos[banco_actual][tecla]['sample'] is not None:
+                self._update_status(f'Pad no vacío {banco_actual}-{tecla.upper()}')
+                return
+
+            self._update_status(f'RSMP PAD {banco_actual}-{tecla.upper()}')
+            self._selected_pad = tecla
+            self._set_resample_target(banco_actual, tecla)
+            return
+
+        if resample_state == 'recording' and not resampling:
+            self._update_status('RSMP INICIADO')
+            self._start_resample_capture()
+
         if iniciar_pad(tecla):
             self._update_status(f'Pad {tecla.upper()} -> {banco_actual}')
         else:
-            self._update_status(f'Pad vacio {banco_actual}-{tecla.upper()}')
+            self._update_status(f'Pad vacío {banco_actual}-{tecla.upper()}')
 
     def _pad_released(self, tecla):
         soltar_pad(tecla)
 
     def _toggle_resample(self):
-        if resampling:
+        if resample_state != 'idle':
+            cancelar_resample()
+            self._update_status('RSMP cancelado')
+            return
+
+        ok = iniciar_resample()
+        if ok:
+            self._update_status('RSMP select pad vacío')
+        else:
+            self._update_status('No pads libres RSMP')
+
+    def _toggle_rec(self):
+        if resample_state == 'ready':
+            ok = armar_resample()
+            if ok:
+                self._update_status('RSMP listo, toca pads')
+            else:
+                self._update_status('RSMP error')
+            return
+
+        if resample_state == 'recording' or resampling:
             ok = detener_resample()
             if ok:
                 self._update_status('RSMP guardado')
             else:
                 self._update_status('RSMP detenido')
-        else:
-            ok = iniciar_resample()
-            if ok:
-                self._update_status(f'RSMP REC {banco_actual}')
-            else:
-                self._update_status('No pads libres RSMP')
+            return
+
+        self._update_status('Presiona RESAMPLE + pad vacío primero')
     
     def _toggle_lofi(self):
-        estado = toggle_lofi()
+        if self._selected_pad is None:
+            self._update_status('Select pad')
+            return
+
+        estado = toggle_lofi(self._selected_pad)
         if estado:
-            self._update_status('LO-FI ON')
+            self._update_status(f'LO-FI ON {banco_actual}-{self._selected_pad.upper()}')
         else:
-            self._update_status('LO-FI OFF')
+            self._update_status(f'LO-FI OFF {banco_actual}-{self._selected_pad.upper()}')
 
     def eventFilter(self, obj, event):
         if obj in self._pad_map and event.type() == QtCore.QEvent.MouseButtonPress:
@@ -543,8 +624,9 @@ class SP404Dialog(QtWidgets.QDialog):
         if not ruta:
             return
 
+        self._selected_pad = tecla
         try:
-            # se guarda en el banco actual, carga y vuelve a mostrar estado del saple
+            # se guarda en el banco actual, carga y vuelve a mostrar estado del sample
             cargar_pad(tecla, ruta)
             self._update_status(f'Cargado {banco_actual}-{tecla.upper()}')
         except Exception as e:
